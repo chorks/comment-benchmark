@@ -2,23 +2,27 @@ var Benchmark = require("benchmark").Benchmark;
 var suite = new Benchmark.Suite;
 
 var contents = require("fs").readFileSync("testdata.txt", "utf-8");
-var regex = /^\s*\/\*([\s\S]*?)\*\//mg;
+var LineCounter = require("line-counter");
 
 suite
     .add("regex", function () {
+        var counter = new LineCounter(contents);
+        var regex = /^[ \t]*?\/\*([\s\S]*?)\*\//mg;
         var comment;
         var result = [];
         while ((comment = regex.exec(contents)) != null) {
             result.push({
-                start: comment.index,
-                end: comment.index + comment[0].length,
-                text: comment[1]
+                begin: counter.countUpTo(comment.index),
+                end: counter.countUpTo(comment.index + comment[0].length - 1),
+                content: comment[1]
             });
         }
         return result;
     });
 
 suite.add("iterate char-wise", function () {
+    var counter = new LineCounter(contents);
+
     /**
      * Test if a string occurs at a given index within another string
      * @param aString
@@ -47,9 +51,13 @@ suite.add("iterate char-wise", function () {
             }
         }
         if (current != null && substrTest(contents, "*/", i)) {
-            current["end"] = i + 2;
+            current["end"] = i;
             current["text"] = contents.substr(current.start + 2, current.end - current.start - 4);
-            result.push(current);
+            result.push({
+                begin: counter.countUpTo(current.start),
+                end: counter.countUpTo(current.end),
+                text: current.text
+            });
             current = null;
         }
     }
@@ -57,6 +65,7 @@ suite.add("iterate char-wise", function () {
 });
 
 suite.add("iterate using 'indexOf'", function () {
+    var counter = new LineCounter(contents);
     var i = 0;
     var current = null;
     var result = [];
@@ -75,9 +84,13 @@ suite.add("iterate using 'indexOf'", function () {
             if (i == -1) {
                 break;
             } else {
-                current["end"] = i + 2;
+                current["end"] = i+2;
                 current["text"] = contents.substr(current.start + 2, current.end - current.start - 4);
-                result.push(current);
+                result.push({
+                    begin: counter.countUpTo(current.start),
+                    end: counter.countUpTo(current.end),
+                    text: current.text
+                });
                 current = null;
             }
         }
@@ -98,9 +111,9 @@ suite.add("iterate line-wise", function () {
     for (var i = 0; i < lines.length; i++) {
         var trimmed = lines[i].trim();
         // Is the current line starting a comment? Check whether the line starts with a comment starter
-        if (current == null && trimmed.lastIndexOf(startPattern, 0) === 0) {
+        if (current == null && trimmed.lastIndexOf("/*", 0) === 0) {
             current = {
-                start: i,
+                start: i+1,
                 lines: []
             }
         }
@@ -110,7 +123,7 @@ suite.add("iterate line-wise", function () {
             current.lines.push(trimmed);
 
             // is thie the end of the comment?
-            var endIndex = trimmed.indexOf(endPattern);
+            var endIndex = trimmed.indexOf("*/");
             if (endIndex >= 0) {
                 current.end = i + 1;
                 // Strip everything after the end of the comment (on the last comment line, including the marker)
@@ -134,13 +147,14 @@ suite
     .on('complete', function () {
         console.log('Fastest is ' + this.filter('fastest').pluck('name'));
     })
-    .on('result', function(result) {
+    .on('result', function (result) {
         console.log(arguments);
     });
 
-suite.forEach(function(test) {
+suite.forEach(function (test) {
     // Output the number of comments found by each test
-    console.log(test.name,test.fn().length);
+    var result = test.fn();
+    console.log(test.name, result.length, result[4]);
 });
 
 suite.run();
